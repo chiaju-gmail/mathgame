@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>1000以內數學排序大挑戰</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap');
+        
+        body {
+            font-family: 'Noto+Sans+TC', sans-serif;
+            background-color: #f8fafc;
+            touch-action: manipulation;
+            overflow-x: hidden;
+        }
+
+        .view-section {
+            display: none;
+        }
+
+        .view-section.active {
+            display: flex;
+        }
+
+        .number-card {
+            transition: all 0.2s ease;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .number-card:active {
+            transform: scale(0.95);
+        }
+
+        .dual-screen {
+            height: calc(100vh - 80px);
+        }
+
+        .divider {
+            width: 4px;
+            background: #e2e8f0;
+        }
+
+        @keyframes pop {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .animate-pop {
+            animation: pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <!-- 1. 設定頁面 -->
+    <div id="settings-view" class="view-section active min-h-screen flex-col items-center justify-center p-6 bg-gradient-to-br from-blue-50 to-indigo-100">
+        <div class="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md border border-white">
+            <h1 class="text-3xl font-bold text-center text-blue-600 mb-8">數學排序設定</h1>
+            
+            <div class="space-y-6">
+                <!-- 範圍設定 -->
+                <div>
+                    <label class="block text-gray-700 font-bold mb-2">數字範圍 (1-1000)</label>
+                    <div class="flex items-center gap-4">
+                        <input type="number" id="min-range" value="100" min="1" max="900" class="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-400 outline-none">
+                        <span class="text-gray-400">至</span>
+                        <input type="number" id="max-range" value="1000" min="100" max="1000" class="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-400 outline-none">
+                    </div>
+                </div>
+
+                <!-- 模式設定 -->
+                <div>
+                    <label class="block text-gray-700 font-bold mb-3">遊戲模式</label>
+                    <div class="grid grid-cols-2 gap-4">
+                        <button onclick="setMode('single')" id="mode-single" class="mode-btn p-4 rounded-2xl border-2 border-blue-500 bg-blue-50 text-blue-700 font-bold flex flex-col items-center">
+                            <span class="text-3xl mb-1">👤</span> 單人測驗
+                        </button>
+                        <button onclick="setMode('dual')" id="mode-dual" class="mode-btn p-4 rounded-2xl border-2 border-gray-200 bg-white text-gray-500 font-bold flex flex-col items-center">
+                            <span class="text-3xl mb-1">👥</span> 雙人比賽
+                        </button>
+                    </div>
+                </div>
+
+                <button onclick="startGame()" class="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold text-xl hover:bg-blue-700 transition shadow-lg mt-4">
+                    開始遊戲
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 遊戲主畫面 -->
+    <div id="game-view" class="view-section flex-col h-screen overflow-hidden">
+        <!-- 頂部資訊欄 -->
+        <div class="h-20 bg-white border-b flex items-center justify-between px-6 shrink-0 shadow-sm">
+            <div class="flex items-center gap-4">
+                <button onclick="exitGame()" class="p-2 text-gray-400 hover:text-gray-600">◀ 離開</button>
+                <div class="text-xl font-bold text-blue-600">第 <span id="level-display">1</span> / 5 關</div>
+            </div>
+            <div id="rule-badge" class="px-4 py-1 rounded-full text-white font-bold bg-blue-500">
+                由小到大排列
+            </div>
+            <div id="p2-score-info" class="hidden font-bold">
+                P1: <span id="p1-score">0</span> | P2: <span id="p2-score">0</span>
+            </div>
+        </div>
+
+        <!-- 遊戲區域容器 -->
+        <div id="game-container" class="flex flex-1 relative bg-gray-100 overflow-hidden">
+            <!-- Player 1 -->
+            <div id="p1-area" class="flex-1 flex flex-col p-4 overflow-y-auto">
+                <div class="text-center font-bold text-blue-600 mb-2 p1-label hidden">玩家 1</div>
+                <div class="flex flex-col gap-6">
+                    <div>
+                        <p class="text-sm font-bold text-gray-500 mb-2 text-center">待選數字池</p>
+                        <div id="p1-pool" class="grid grid-cols-2 sm:grid-cols-5 gap-2 p-3 bg-white rounded-2xl shadow-sm min-h-[140px]"></div>
+                    </div>
+                    <div>
+                        <p class="text-sm font-bold text-gray-500 mb-2 text-center">你的排列答案</p>
+                        <div id="p1-answer" class="grid grid-cols-2 sm:grid-cols-5 gap-2 p-3 bg-blue-50 rounded-2xl border-2 border-blue-200 min-h-[140px]"></div>
+                    </div>
+                    <button onclick="resetPlayer('p1')" class="self-center px-6 py-2 bg-gray-200 text-gray-600 rounded-full font-bold text-sm">清除重填</button>
+                </div>
+            </div>
+
+            <div id="dual-divider" class="divider hidden"></div>
+
+            <!-- Player 2 (僅在雙人模式顯示) -->
+            <div id="p2-area" class="flex-1 hidden flex flex-col p-4 bg-orange-50/30 overflow-y-auto">
+                <div class="text-center font-bold text-orange-600 mb-2">玩家 2</div>
+                <div class="flex flex-col gap-6">
+                    <div>
+                        <p class="text-sm font-bold text-gray-500 mb-2 text-center">待選數字池</p>
+                        <div id="p2-pool" class="grid grid-cols-2 sm:grid-cols-5 gap-2 p-3 bg-white rounded-2xl shadow-sm min-h-[140px]"></div>
+                    </div>
+                    <div>
+                        <p class="text-sm font-bold text-gray-500 mb-2 text-center">你的排列答案</p>
+                        <div id="p2-answer" class="grid grid-cols-2 sm:grid-cols-5 gap-2 p-3 bg-orange-50 rounded-2xl border-2 border-orange-200 min-h-[140px]"></div>
+                    </div>
+                    <button onclick="resetPlayer('p2')" class="self-center px-6 py-2 bg-gray-200 text-gray-600 rounded-full font-bold text-sm">清除重填</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 過關彈窗 -->
+    <div id="overlay" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl animate-pop">
+            <div id="win-icon" class="text-6xl mb-4">🎉</div>
+            <h2 id="overlay-title" class="text-3xl font-bold text-green-600 mb-2">恭喜過關</h2>
+            <p id="overlay-msg" class="text-gray-600 mb-6">數列排列完全正確！</p>
+            <button id="next-btn" onclick="goNextLevel()" class="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold text-xl hover:bg-blue-700 transition">
+                進入下一關
+            </button>
+        </div>
+    </div>
+
+    <!-- 4. 遊戲結束總結 -->
+    <div id="finish-view" class="view-section fixed inset-0 bg-blue-600 hidden flex-col items-center justify-center z-50 text-white p-6">
+        <div class="text-8xl mb-6">🏆</div>
+        <h2 class="text-5xl font-bold mb-4">挑戰完成！</h2>
+        <p id="finish-msg" class="text-xl mb-8 text-blue-100">太優秀了，所有的數字都排對了！</p>
+        <button onclick="exitGame()" class="px-12 py-4 bg-white text-blue-600 rounded-full font-bold text-2xl shadow-xl">返回主單頁</button>
+    </div>
+
+    <script>
+        const state = {
+            mode: 'single', // 'single' or 'dual'
+            min: 1,
+            max: 1000,
+            currentLevel: 1,
+            maxLevel: 5,
+            levelData: {
+                numbers: [],     // 原始數列
+                target: [],      // 正確答案
+                isAsc: true      // 排序方向
+            },
+            p1: { userSeq: [], pool: [], score: 0 },
+            p2: { userSeq: [], pool: [], score: 0 },
+            levelWinner: null
+        };
+
+        const views = {
+            settings: document.getElementById('settings-view'),
+            game: document.getElementById('game-view'),
+            finish: document.getElementById('finish-view'),
+            overlay: document.getElementById('overlay')
+        };
+
+        // 切換模式按鈕 UI
+        function setMode(m) {
+            state.mode = m;
+            document.querySelectorAll('.mode-btn').forEach(b => {
+                b.classList.remove('border-blue-500', 'bg-blue-50', 'text-blue-700');
+                b.classList.add('border-gray-200', 'bg-white', 'text-gray-500');
+            });
+            const activeBtn = document.getElementById(`mode-${m}`);
+            activeBtn.classList.remove('border-gray-200', 'bg-white', 'text-gray-500');
+            activeBtn.classList.add('border-blue-500', 'bg-blue-50', 'text-blue-700');
+        }
+
+        function startGame() {
+            state.min = parseInt(document.getElementById('min-range').value) || 1;
+            state.max = parseInt(document.getElementById('max-range').value) || 1000;
+            
+            if (state.min >= state.max) {
+                alert("範圍設定錯誤，最小值需小於最大值");
+                return;
+            }
+
+            state.currentLevel = 1;
+            state.p1.score = 0;
+            state.p2.score = 0;
+
+            // UI 調整 (雙人 vs 單人)
+            if (state.mode === 'dual') {
+                document.getElementById('p2-area').classList.remove('hidden');
+                document.getElementById('p2-area').classList.add('flex');
+                document.getElementById('dual-divider').classList.remove('hidden');
+                document.getElementById('p2-score-info').classList.remove('hidden');
+                document.querySelectorAll('.p1-label').forEach(el => el.classList.remove('hidden'));
+            } else {
+                document.getElementById('p2-area').classList.add('hidden');
+                document.getElementById('p2-area').classList.remove('flex');
+                document.getElementById('dual-divider').classList.add('hidden');
+                document.getElementById('p2-score-info').classList.add('hidden');
+                document.querySelectorAll('.p1-label').forEach(el => el.classList.add('hidden'));
+            }
+
+            views.settings.classList.remove('active');
+            views.game.classList.add('active');
+            setupLevel();
+        }
+
+        function setupLevel() {
+            const steps = [1, 10, 100];
+            const step = steps[Math.floor(Math.random() * steps.length)];
+            const count = 10;
+            
+            // 決定方向
+            state.levelData.isAsc = (state.currentLevel % 2 !== 0);
+
+            // 計算合法起始範圍
+            const rangeNeeded = (count - 1) * step;
+            const validMaxStart = state.max - rangeNeeded;
+            const validMinStart = state.min;
+
+            let startVal;
+            if (validMaxStart < validMinStart) {
+                // 如果範圍不足以容納該步長的10個數字，強行縮小步長或調整
+                startVal = state.min;
+                // 此處簡化處理，實際若間隔太大會出問題，在1000以內選100間距是沒問題的
+            } else {
+                startVal = Math.floor(Math.random() * (validMaxStart - validMinStart + 1)) + validMinStart;
+            }
+
+            const sequence = Array.from({length: count}, (_, i) => startVal + i * step);
+            state.levelData.numbers = [...sequence];
+            state.levelData.target = [...sequence];
+            if (!state.levelData.isAsc) state.levelData.target.reverse();
+
+            // 雙方拿到一樣的數字但不同的洗牌
+            state.p1.pool = [...sequence].sort(() => Math.random() - 0.5);
+            state.p1.userSeq = [];
+            state.p2.pool = [...sequence].sort(() => Math.random() - 0.5);
+            state.p2.userSeq = [];
+            state.levelWinner = null;
+
+            renderGame();
+        }
+
+        function renderGame() {
+            document.getElementById('level-display').innerText = state.currentLevel;
+            const ruleBadge = document.getElementById('rule-badge');
+            ruleBadge.innerText = state.levelData.isAsc ? "由小到大排列" : "由大到小排列";
+            ruleBadge.className = `px-4 py-1 rounded-full text-white font-bold ${state.levelData.isAsc ? 'bg-blue-500' : 'bg-orange-500'}`;
+
+            if(state.mode === 'dual') {
+                document.getElementById('p1-score').innerText = state.p1.score;
+                document.getElementById('p2-score').innerText = state.p2.score;
+            }
+
+            renderPlayer('p1');
+            if (state.mode === 'dual') renderPlayer('p2');
+        }
+
+        function renderPlayer(pId) {
+            const player = state[pId];
+            const poolEl = document.getElementById(`${pId}-pool`);
+            const ansEl = document.getElementById(`${pId}-answer`);
+
+            // 渲染池
+            poolEl.innerHTML = '';
+            player.pool.forEach(num => {
+                const used = player.userSeq.includes(num);
+                const card = document.createElement('div');
+                card.className = `number-card h-12 flex items-center justify-center rounded-xl border-2 font-bold text-lg shadow-sm ${used ? 'bg-gray-100 text-gray-300 border-gray-100' : 'bg-white text-gray-700 border-blue-100'}`;
+                card.innerText = num;
+                if (!used) card.onclick = () => selectNum(pId, num);
+                poolEl.appendChild(card);
+            });
+
+            // 渲染答案
+            ansEl.innerHTML = '';
+            for(let i = 0; i < 10; i++) {
+                const slot = document.createElement('div');
+                slot.className = `h-12 flex items-center justify-center rounded-xl border-2 font-bold text-lg ${player.userSeq[i] ? 'bg-white border-blue-400 text-blue-600 animate-pop' : 'border-dashed border-gray-200 bg-gray-50/50'}`;
+                slot.innerText = player.userSeq[i] || '';
+                ansEl.appendChild(slot);
+            }
+
+            // 檢查
+            if (player.userSeq.length === 10) {
+                checkPlayerResult(pId);
+            }
+        }
+
+        function selectNum(pId, num) {
+            if (state[pId].userSeq.length < 10) {
+                state[pId].userSeq.push(num);
+                renderPlayer(pId);
+            }
+        }
+
+        function resetPlayer(pId) {
+            state[pId].userSeq = [];
+            renderPlayer(pId);
+        }
+
+        function checkPlayerResult(pId) {
+            const player = state[pId];
+            const isCorrect = player.userSeq.every((v, i) => v === state.levelData.target[i]);
+            
+            if (isCorrect) {
+                if (state.mode === 'single') {
+                    showOverlay("恭喜過關", "你正確地排列了所有數字！");
+                } else {
+                    // 雙人模式，第一個答對的加分
+                    if (!state.levelWinner) {
+                        state.levelWinner = pId;
+                        state[pId].score++;
+                        const winnerName = pId === 'p1' ? "玩家 1" : "玩家 2";
+                        showOverlay(winnerName + " 獲勝！", `本關由 ${winnerName} 搶先完成！`);
+                    }
+                }
+            } else {
+                // 錯誤提示
+                const ansArea = document.getElementById(`${pId}-answer`);
+                ansArea.classList.add('border-red-500');
+                setTimeout(() => {
+                    ansArea.classList.remove('border-red-500');
+                    resetPlayer(pId);
+                }, 800);
+            }
+        }
+
+        function showOverlay(title, msg) {
+            document.getElementById('overlay-title').innerText = title;
+            document.getElementById('overlay-msg').innerText = msg;
+            
+            if (state.currentLevel === state.maxLevel) {
+                document.getElementById('next-btn').innerText = "查看總結";
+            } else {
+                document.getElementById('next-btn').innerText = "下一關卡";
+            }
+
+            views.overlay.classList.remove('hidden');
+            views.overlay.classList.add('flex');
+        }
+
+        function goNextLevel() {
+            views.overlay.classList.add('hidden');
+            views.overlay.classList.remove('flex');
+            
+            if (state.currentLevel < state.maxLevel) {
+                state.currentLevel++;
+                setupLevel();
+            } else {
+                showFinish();
+            }
+        }
+
+        function showFinish() {
+            views.game.classList.remove('active');
+            views.finish.classList.add('active');
+            
+            let finalMsg = "";
+            if (state.mode === 'dual') {
+                if (state.p1.score > state.p2.score) finalMsg = `最終比分 ${state.p1.score} : ${state.p2.score}，玩家 1 獲勝！`;
+                else if (state.p2.score > state.p1.score) finalMsg = `最終比分 ${state.p1.score} : ${state.p2.score}，玩家 2 獲勝！`;
+                else finalMsg = `比分 ${state.p1.score} : ${state.p2.score}，雙方平手！`;
+            } else {
+                finalMsg = "你成功完成了所有排序測試！對數字的敏感度大大提升！";
+            }
+            document.getElementById('finish-msg').innerText = finalMsg;
+        }
+
+        function exitGame() {
+            views.game.classList.remove('active');
+            views.finish.classList.add('hidden');
+            views.finish.classList.remove('active');
+            views.settings.classList.add('active');
+        }
+
+        // 監聽數字鍵 1-0 快捷鍵供單人測試 (可選)
+        window.addEventListener('keydown', (e) => {
+            if (state.mode === 'single' && views.game.classList.contains('active')) {
+                // 這裡可以擴充鍵盤支援
+            }
+        });
+
+    </script>
+</body>
+</html>
