@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>逆向運算四子棋 (橫向版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        /* 強制橫屏提示遮罩 */
+        #orientation-lock {
+            display: none;
+        }
+        @media screen and (orientation: portrait) {
+            #orientation-lock {
+                display: flex !important;
+            }
+            #main-app {
+                display: none !important;
+            }
+        }
+
+        /* 遊戲棋盤樣式 */
+        .game-board {
+            border-collapse: separate;
+            border-spacing: 2px;
+            margin: auto;
+            user-select: none;
+        }
+
+        /* 緊湊型單元格 */
+        .game-board td, .game-board th {
+            width: 28px;
+            height: 28px;
+            text-align: center;
+            vertical-align: middle;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        /* 平板/桌面下稍微放大 */
+        @media (min-height: 600px) and (min-width: 900px) {
+            .game-board td, .game-board th {
+                width: 38px;
+                height: 38px;
+                font-size: 1rem;
+            }
+        }
+
+        .game-board th {
+            background-color: #cbd5e1;
+            color: #334155;
+            cursor: default;
+        }
+        .header-corner {
+            background-color: #94a3b8 !important;
+            color: white;
+        }
+
+        .cell-base {
+            background-color: #fff;
+            border: 1px solid #e2e8f0;
+            color: #94a3b8;
+        }
+        .cell-base:active {
+            transform: scale(0.9);
+        }
+
+        /* 錯誤回饋動畫 */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); background-color: #fee2e2; }
+            75% { transform: translateX(4px); background-color: #fee2e2; }
+        }
+        .cell-error {
+            animation: shake 0.3s ease-in-out;
+        }
+
+        /* 佔領樣式 */
+        .cell-red {
+            background-color: #ef4444 !important;
+            border: 2px solid #b91c1c !important;
+            color: white !important;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+            cursor: default;
+        }
+        .cell-green {
+            background-color: #22c55e !important;
+            border: 2px solid #15803d !important;
+            color: white !important;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+            cursor: default;
+        }
+
+        /* 側邊欄面板樣式 - 緊湊版 */
+        .side-panel {
+            width: 140px;
+            transition: all 0.3s;
+            opacity: 0.5;
+            filter: grayscale(0.6);
+            border: none;
+        }
+        @media (min-width: 1024px) {
+            .side-panel { width: 180px; }
+        }
+
+        .turn-active {
+            opacity: 1;
+            filter: grayscale(0);
+            box-shadow: 0 0 15px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+        .turn-active-red { background-color: #fff1f2; border-right: 4px solid #ef4444; }
+        .turn-active-green { background-color: #f0fdf4; border-left: 4px solid #22c55e; }
+
+        .number-box {
+            font-family: 'Courier New', monospace;
+            text-shadow: 1px 1px 0px rgba(0,0,0,0.1);
+        }
+
+        /* 旋轉手機動畫 */
+        .rotate-phone-icon {
+            width: 60px;
+            height: 100px;
+            border: 3px solid white;
+            border-radius: 10px;
+            animation: rotate 1.5s infinite ease-in-out alternate;
+            margin-bottom: 20px;
+        }
+        @keyframes rotate {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(90deg); }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 h-screen w-screen overflow-hidden font-sans">
+
+    <!-- 直向時顯示的遮罩層 -->
+    <div id="orientation-lock" class="fixed inset-0 bg-slate-900 z-[100] flex flex-col items-center justify-center text-white p-8 text-center">
+        <div class="rotate-phone-icon bg-slate-800 relative">
+            <div class="absolute top-2 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-white rounded-full"></div>
+            <div class="absolute bottom-2 left-1/2 transform -translate-x-1/2 w-6 h-1 bg-white rounded-full"></div>
+        </div>
+        <h2 class="text-2xl font-bold mb-2">請將裝置轉為橫向</h2>
+        <p class="text-slate-300">為了最佳的遊戲體驗，請旋轉您的手機或平板。</p>
+    </div>
+
+    <!-- 遊戲主程式 -->
+    <div id="main-app" class="flex h-full w-full">
+        
+        <!-- 左側：紅隊控制區 -->
+        <aside id="redPanel" class="side-panel bg-red-50 flex flex-col items-center justify-center p-2 gap-3 relative shadow-lg">
+            
+            <div class="text-center">
+                <div class="flex items-center justify-center gap-1 mb-1">
+                    <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                    <h2 class="text-lg font-black text-red-600">紅隊</h2>
+                </div>
+                <div class="text-[10px] text-red-400 font-bold uppercase tracking-wider status-text">等待中</div>
+            </div>
+
+            <div class="relative w-20 h-20 md:w-24 md:h-24 bg-red-500 rounded-xl shadow-md flex flex-col items-center justify-center border-2 border-red-600">
+                <span class="text-red-100 text-[10px] font-bold absolute top-1">目標</span>
+                <div id="redTarget" class="number-box text-4xl md:text-5xl font-black text-white leading-none mt-2">?</div>
+            </div>
+
+            <button id="redBtn" onclick="rollDice('red')" class="w-full max-w-[100px] py-2 bg-red-600 hover:bg-red-700 text-white text-xs md:text-sm font-bold rounded-lg shadow transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center gap-1">
+                <span>🎲 擲骰</span>
+            </button>
+            
+            <div id="redMessage" class="text-xs text-red-600 font-bold opacity-0 transition-opacity text-center px-1 leading-tight">
+                請在表格找答案
+            </div>
+        </aside>
+
+        <!-- 中間：棋盤區 -->
+        <main class="flex-1 bg-white flex flex-col relative overflow-hidden">
+            
+            <!-- 頂部資訊條 -->
+            <header class="flex-none h-10 bg-slate-800 text-white flex items-center justify-between px-4 shadow-md z-20">
+                <div class="text-xs font-bold flex items-center gap-2">
+                    <!-- 標題更新 -->
+                    <span>🧮 逆向運算四子棋 (0-10)</span>
+                </div>
+                <div id="gameStatus" class="text-xs font-bold px-3 py-0.5 rounded-full bg-slate-600 animate-pulse">
+                    準備開始
+                </div>
+                <button onclick="resetGame()" class="text-xs bg-slate-600 hover:bg-slate-500 px-2 py-0.5 rounded text-white transition">
+                    ↺ 重置
+                </button>
+            </header>
+
+            <!-- 棋盤容器 -->
+            <div class="flex-1 w-full overflow-auto flex items-center justify-center bg-slate-50 p-1">
+                <table id="gameTable" class="game-board bg-white shadow-xl rounded-lg">
+                    <!-- JS 生成 -->
+                </table>
+            </div>
+
+        </main>
+
+        <!-- 右側：綠隊控制區 -->
+        <aside id="greenPanel" class="side-panel bg-green-50 flex flex-col items-center justify-center p-2 gap-3 relative shadow-lg">
+            
+            <div class="text-center">
+                <div class="flex items-center justify-center gap-1 mb-1">
+                    <h2 class="text-lg font-black text-green-600">綠隊</h2>
+                    <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                </div>
+                <div class="text-[10px] text-green-400 font-bold uppercase tracking-wider status-text">等待中</div>
+            </div>
+
+            <div class="relative w-20 h-20 md:w-24 md:h-24 bg-green-500 rounded-xl shadow-md flex flex-col items-center justify-center border-2 border-green-600">
+                <span class="text-green-100 text-[10px] font-bold absolute top-1">目標</span>
+                <div id="greenTarget" class="number-box text-4xl md:text-5xl font-black text-white leading-none mt-2">?</div>
+            </div>
+
+            <button id="greenBtn" onclick="rollDice('green')" class="w-full max-w-[100px] py-2 bg-green-600 hover:bg-green-700 text-white text-xs md:text-sm font-bold rounded-lg shadow transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex flex-col items-center gap-1" disabled>
+                <span>🎲 擲骰</span>
+            </button>
+
+            <div id="greenMessage" class="text-xs text-green-600 font-bold opacity-0 transition-opacity text-center px-1 leading-tight">
+                請在表格找答案
+            </div>
+        </aside>
+
+    </div>
+
+    <!-- 獲勝彈窗 -->
+    <div id="winModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[50] hidden flex items-center justify-center">
+        <div class="bg-white p-6 rounded-2xl shadow-2xl text-center max-w-xs mx-4 transform transition-all scale-100 border-4 border-indigo-500">
+            <div class="text-5xl mb-3 animate-bounce">🏆</div>
+            <h2 id="winnerTitle" class="text-2xl font-black mb-1 text-slate-800">紅隊獲勝！</h2>
+            <p class="text-slate-500 text-sm mb-4 font-bold">恭喜達成四子連線！</p>
+            <button onclick="resetGame()" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-lg">再玩一局</button>
+        </div>
+    </div>
+
+    <!-- 錯誤提示 Toast -->
+    <div id="toast" class="fixed top-12 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded-full shadow-2xl font-bold opacity-0 pointer-events-none transition-all duration-300 z-[60] text-sm whitespace-nowrap">
+        算錯囉！
+    </div>
+
+    <script>
+        // 遊戲狀態
+        const state = {
+            currentPlayer: 'red', // 'red' or 'green'
+            phase: 'waiting_roll', // 'waiting_roll', 'rolling', 'selecting'
+            targetProduct: null,
+            grid: Array(11).fill().map(() => Array(11).fill(null)), // 0-10
+            gameover: false
+        };
+
+        const els = {
+            table: document.getElementById('gameTable'),
+            redPanel: document.getElementById('redPanel'),
+            greenPanel: document.getElementById('greenPanel'),
+            redBtn: document.getElementById('redBtn'),
+            greenBtn: document.getElementById('greenBtn'),
+            redTarget: document.getElementById('redTarget'),
+            greenTarget: document.getElementById('greenTarget'),
+            redMsg: document.getElementById('redMessage'),
+            greenMsg: document.getElementById('greenMessage'),
+            status: document.getElementById('gameStatus'),
+            winModal: document.getElementById('winModal'),
+            winnerTitle: document.getElementById('winnerTitle'),
+            toast: document.getElementById('toast')
+        };
+
+        function initGame() {
+            generateBoard();
+            updateTurnUI();
+            checkOrientation();
+        }
+
+        function checkOrientation() {
+            // CSS Handles display logic
+        }
+        window.addEventListener('resize', checkOrientation);
+
+        function generateBoard() {
+            let html = '<thead><tr><th class="header-corner text-[10px]">×</th>';
+            for (let i = 0; i <= 10; i++) html += `<th>${i}</th>`;
+            html += '</tr></thead><tbody>';
+
+            for (let r = 0; r <= 10; r++) {
+                html += `<tr><th>${r}</th>`;
+                for (let c = 0; c <= 10; c++) {
+                    const val = r * c;
+                    html += `<td id="cell-${r}-${c}" class="cell-base" onclick="handleCellClick(${r}, ${c}, ${val})">${val}</td>`;
+                }
+                html += '</tr>';
+            }
+            html += '</tbody>';
+            els.table.innerHTML = html;
+        }
+
+        function updateTurnUI() {
+            if (state.gameover) return;
+
+            const isRed = state.currentPlayer === 'red';
+            
+            if (isRed) {
+                els.redPanel.classList.add('turn-active', 'turn-active-red');
+                els.greenPanel.classList.remove('turn-active', 'turn-active-green');
+                els.redPanel.querySelector('.status-text').textContent = "你的回合";
+                els.greenPanel.querySelector('.status-text').textContent = "等待中";
+            } else {
+                els.redPanel.classList.remove('turn-active', 'turn-active-red');
+                els.greenPanel.classList.add('turn-active', 'turn-active-green');
+                els.redPanel.querySelector('.status-text').textContent = "等待中";
+                els.greenPanel.querySelector('.status-text').textContent = "你的回合";
+            }
+
+            els.redBtn.disabled = !isRed || state.phase !== 'waiting_roll';
+            els.greenBtn.disabled = isRed || state.phase !== 'waiting_roll';
+
+            const statusBox = els.status;
+            statusBox.className = "text-xs font-bold px-3 py-0.5 rounded-full transition-all text-white ";
+            
+            if (state.phase === 'waiting_roll') {
+                statusBox.textContent = isRed ? "🔴 紅隊擲骰" : "🟢 綠隊擲骰";
+                statusBox.classList.add(isRed ? 'bg-red-500' : 'bg-green-500');
+            } else if (state.phase === 'selecting') {
+                statusBox.textContent = `🎯 目標: ${state.targetProduct}`;
+                statusBox.classList.add('bg-slate-600', 'animate-pulse');
+            }
+        }
+
+        function showToast(msg, isError = true) {
+            els.toast.textContent = msg;
+            els.toast.className = `fixed top-12 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded-full shadow-2xl font-bold transition-all duration-300 z-[60] text-sm whitespace-nowrap ${isError ? 'bg-red-600' : 'bg-green-600'} text-white opacity-100`;
+            
+            setTimeout(() => {
+                els.toast.classList.remove('opacity-100');
+                els.toast.classList.add('opacity-0');
+            }, 1500);
+        }
+
+        function rollDice(player) {
+            if (state.gameover) return;
+            state.phase = 'rolling';
+            updateTurnUI();
+
+            const targetEl = player === 'red' ? els.redTarget : els.greenTarget;
+            const btnEl = player === 'red' ? els.redBtn : els.greenBtn;
+
+            btnEl.innerHTML = `<span>🎲...</span>`;
+
+            let count = 0;
+            let finalProduct = 0;
+            
+            const interval = setInterval(() => {
+                targetEl.textContent = Math.floor(Math.random() * 101);
+                count++;
+            }, 60);
+
+            setTimeout(() => {
+                clearInterval(interval);
+                
+                const n1 = Math.floor(Math.random() * 11);
+                const n2 = Math.floor(Math.random() * 11);
+                finalProduct = n1 * n2;
+
+                state.targetProduct = finalProduct;
+                targetEl.textContent = finalProduct;
+                
+                state.phase = 'selecting';
+                btnEl.innerHTML = `<span>ok</span>`;
+                
+                const msgEl = player === 'red' ? els.redMsg : els.greenMsg;
+                msgEl.classList.remove('opacity-0');
+                
+                updateTurnUI();
+
+                if (!checkAvailableMoves(finalProduct)) {
+                    showToast(`棋盤上無 ${finalProduct} 空位，跳過！`, true);
+                    setTimeout(endTurn, 1500);
+                }
+
+            }, 1500);
+        }
+
+        function checkAvailableMoves(target) {
+            for (let r = 0; r <= 10; r++) {
+                for (let c = 0; c <= 10; c++) {
+                    if (r * c === target && state.grid[r][c] === null) return true;
+                }
+            }
+            return false;
+        }
+
+        function handleCellClick(r, c, val) {
+            if (state.gameover || state.phase !== 'selecting') return;
+
+            const cell = document.getElementById(`cell-${r}-${c}`);
+
+            if (state.grid[r][c] !== null) {
+                showToast("這格已被佔領", true);
+                cell.classList.add('cell-error');
+                setTimeout(() => cell.classList.remove('cell-error'), 400);
+                return;
+            }
+
+            if (val !== state.targetProduct) {
+                showToast(`錯誤！${r}x${c}=${val}`, true);
+                cell.classList.add('cell-error');
+                setTimeout(() => cell.classList.remove('cell-error'), 400);
+                return;
+            }
+
+            state.grid[r][c] = state.currentPlayer;
+            
+            els.redMsg.classList.add('opacity-0');
+            els.greenMsg.classList.add('opacity-0');
+            
+            cell.classList.add(state.currentPlayer === 'red' ? 'cell-red' : 'cell-green');
+            
+            if (checkWin(r, c, state.currentPlayer)) {
+                gameWin(state.currentPlayer);
+            } else {
+                endTurn();
+            }
+        }
+
+        function endTurn() {
+            els.redBtn.innerHTML = `<span>🎲 擲骰</span>`;
+            els.greenBtn.innerHTML = `<span>🎲 擲骰</span>`;
+            
+            state.currentPlayer = state.currentPlayer === 'red' ? 'green' : 'red';
+            state.phase = 'waiting_roll';
+            state.targetProduct = null;
+            
+            els.redTarget.textContent = "?";
+            els.greenTarget.textContent = "?";
+            
+            updateTurnUI();
+        }
+
+        // 修改後的四子連線判定
+        function checkWin(row, col, player) {
+            const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
+            for (let [dr, dc] of directions) {
+                let count = 1; // 包含自己
+                
+                // 正向檢查 3 格 (加上自己共 4 格)
+                for (let i = 1; i < 4; i++) {
+                    const r = row + dr * i;
+                    const c = col + dc * i;
+                    if (r < 0 || r > 10 || c < 0 || c > 10 || state.grid[r][c] !== player) break;
+                    count++;
+                }
+                
+                // 反向檢查 3 格
+                for (let i = 1; i < 4; i++) {
+                    const r = row - dr * i;
+                    const c = col - dc * i;
+                    if (r < 0 || r > 10 || c < 0 || c > 10 || state.grid[r][c] !== player) break;
+                    count++;
+                }
+                
+                // 只要 >= 4 即獲勝
+                if (count >= 4) return true;
+            }
+            return false;
+        }
+
+        function gameWin(winner) {
+            state.gameover = true;
+            els.winModal.classList.remove('hidden');
+            
+            const title = els.winnerTitle;
+            if (winner === 'red') {
+                title.textContent = "紅隊獲勝！";
+                title.className = "text-2xl font-black mb-1 text-red-600";
+            } else {
+                title.textContent = "綠隊獲勝！";
+                title.className = "text-2xl font-black mb-1 text-green-600";
+            }
+            
+            const color = winner === 'red' ? '#ef4444' : '#22c55e';
+            const duration = 3000;
+            const end = Date.now() + duration;
+
+            (function frame() {
+                confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 }, colors: [color, '#fcd34d'] });
+                confetti({ particleCount: 5, angle: 120, spread: 55, origin: { x: 1 }, colors: [color, '#fcd34d'] });
+                if (Date.now() < end) requestAnimationFrame(frame);
+            }());
+        }
+
+        function resetGame() {
+            state.currentPlayer = 'red';
+            state.phase = 'waiting_roll';
+            state.targetProduct = null;
+            state.gameover = false;
+            state.grid = Array(11).fill().map(() => Array(11).fill(null));
+
+            els.winModal.classList.add('hidden');
+            els.redTarget.textContent = '?';
+            els.greenTarget.textContent = '?';
+            els.redMsg.classList.add('opacity-0');
+            els.greenMsg.classList.add('opacity-0');
+            
+            initGame();
+        }
+
+        window.onload = initGame;
+
+    </script>
+</body>
+</html>
